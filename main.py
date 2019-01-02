@@ -56,42 +56,44 @@ class RFIDWrapper:
             else:
                 return bytes(read)
 
-        
-        (error, uid) = self._prepare_request()
-        if error: raise Exception("failed to prepare request")
+        try:
+            (error, uid) = self._prepare_request()
+            if error: raise Exception("failed to prepare request")
 
-        error = self.rdr.card_auth(self.rdr.auth_b, 4, self.KEY, uid)
-        if error: raise Exception("failed to auth sector 1")
-        
-        start_block = 4
-        read = read_block(start_block)
-        # ndef records starts with this sequence:
-        print("#########################")
-        print(str(read))
+            error = self.rdr.card_auth(self.rdr.auth_b, 4, self.KEY, uid)
+            if error: raise Exception("failed to auth sector 1")
+            
+            start_block = 4
+            read = read_block(start_block)
+            # ndef records starts with this sequence:
+            print("#########################")
+            print(str(read))
 
-        if read[:3] != bytes([0, 0, 3]):
-            raise Exception("Start block with invalid starting sequence: %s" % read)
-        length = get_length(read)
-        bytes_to_read = length
-        print("Found NDEF with %s length" % length)
-        ndef_bytes = read[start_block:(start_block+bytes_to_read)]
-        bytes_to_read -= 16-start_block
-        for i in range(start_block+1, 63):
-            if bytes_to_read <= 0:
-                break
-            elif i % 4 == 3:
-                #ignore every 4th blocks (reserved for key mgmt), but auth for next sector
-                error = self.rdr.card_auth(self.rdr.auth_b, i+1, self.KEY, uid)
-                if error: raise Exception("failed to auth sector %s" % i/4)
-                continue
-            else:
-                ndef_bytes += read_block(i)[:bytes_to_read]
-                bytes_to_read -= 16
-        print("found ndef bytes: %s" % str(ndef_bytes))
-        if length != len(ndef_bytes):
-            self._recreate()
-            raise Exception("Could not read all NDEF bytes (Declared: %i, got: %i)" % (length, len(ndef_bytes)))
-        return ndef_bytes
+            if read[:3] != bytes([0, 0, 3]):
+                raise Exception("Start block with invalid starting sequence: %s" % read)
+            length = get_length(read)
+            bytes_to_read = length
+            print("Found NDEF with %s length" % length)
+            ndef_bytes = read[4:(4+bytes_to_read)]
+            bytes_to_read -= 16-4
+            for i in range(start_block+1, 63):
+                if bytes_to_read <= 0:
+                    break
+                elif i % 4 == 3:
+                    #ignore every 4th blocks (reserved for key mgmt), but auth for next sector
+                    error = self.rdr.card_auth(self.rdr.auth_b, i+1, self.KEY, uid)
+                    if error: raise Exception("failed to auth sector %s" % i/4)
+                    continue
+                else:
+                    ndef_bytes += read_block(i)[:bytes_to_read]
+                    bytes_to_read -= 16
+            print("found ndef bytes: %s" % str(ndef_bytes))
+            if length != len(ndef_bytes):
+                self._recreate()
+                raise Exception("Could not read all NDEF bytes (Declared: %i, got: %i)" % (length, len(ndef_bytes)))
+            return ndef_bytes
+        finally:
+            self.rdr.stop_crypto()
 
     def write_ndef(self, record_bytes):
         def zpad(list, count):
@@ -101,22 +103,29 @@ class RFIDWrapper:
         block_address = 4
         length = len(record_bytes)
         octets = bytes([0, 0, 3, length]) + record_bytes + b'\xFE'
-        (error, uid) = self._prepare_request()
-        if error: raise Exception("failed to prepare request")
+
+        print("Want to write %s" % octets)
 
         try:
+            (error, uid) = self._prepare_request()
+            if error: raise Exception("failed to prepare request")
+
+            error = self.rdr.card_auth(self.rdr.auth_b, block_address, self.KEY, uid)
+            if error: raise Exception("failed to auth sector 1")
+
             while len(octets) > 0:
-                if (block_address) % 4 == 0:
+                if block_address % 4 == 3:
                     #do auth for next sector
                     error = self.rdr.card_auth(self.rdr.auth_b, block_address+1, self.KEY, uid)
-                    if error: raise Exception("failed to auth sector 1")
+                    if error: raise Exception("failed to auth block %s" % block_address+1)
                 else:
                     block = zpad(octets, 16)
-                    print("writing on block %i: %s" % (block_address, str(block)))
-                    self.rdr.write(block_address, block)
+                    print("writing on block %i: %s" % (block_address, block))
+                    if self.rdr.write(block_address, block):
+                        raise Exception("failed to write on %s: %s" % (block_address, block))
                     octets = octets[16:]
                 block_address += 1
-        except:
+        finally:
             self.rdr.stop_crypto()
 
     def _create(self):
@@ -170,6 +179,7 @@ def cleanup():
  """
 # todo: read once
 
+#todo: rm, use request
 def is_tag_present():
     rdr = wrapper.rdr
     rdr.init()
@@ -193,6 +203,7 @@ def spotify_client():
     client_id = os.environ['CLIENT_ID']
     client_secret = os.environ['CLIENT_SECRET']
     token = spotipy_util.prompt_for_user_token(username, scope, client_id, client_secret, "http://google.de")
+    print("Acquired token: %s" % token)
 
     if not token:
         raise Exception("can't get token for " + username)
@@ -201,8 +212,9 @@ def spotify_client():
 
 def get_device_id(sp):
     # todo repeat until found
-    for device in sp.devices()["devices"]:
-        print(str(device))
+    devices = sp.devices()["devices"]
+    print(str(devices))
+    for device in devices:
         if device["name"].startswith("raspotify"):
             return device["id"]
         else:
@@ -287,6 +299,7 @@ def prepareOnce():
             device_id = get_device_id(sp)
         except BaseException:
             traceback.print_exc(file=sys.stdout)
+            time.sleep(2)
 
 
 try:

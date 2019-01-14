@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import signal
 import time
@@ -183,71 +183,18 @@ def is_tag_present():
     rdr.init()
     return present
 
-
-
 def spotify_client():
     scope = 'user-modify-playback-state,user-read-playback-state'
     username = os.environ['USERNAME']
     client_id = os.environ['CLIENT_ID']
     client_secret = os.environ['CLIENT_SECRET']
-    token = spotipy_util.prompt_for_user_token(username, scope, client_id, client_secret, "http://google.de")
+    token = spotipy_util.prompt_for_user_token(username, scope, client_id, client_secret, "http://google.de", "/home/pi/.cache-mattelacchiato")
     print("Acquired token: %s" % token)
 
     if not token:
         raise Exception("can't get token for " + username)
     return spotipy.Spotify(auth=token)
     
-
-def write2(rdr, block_address, data):
-    """
-    Writes data to block. You should be authenticated before calling write.
-    Returns error state.
-    """
-    buf = []
-    buf.append(rdr.act_write)
-    buf.append(block_address)
-    crc = rdr.calculate_crc(buf)
-    buf.append(crc[0])
-    buf.append(crc[1])
-    (error, back_data, back_length) = rdr.card_write(rdr.mode_transrec, buf)
-    if not(back_length == 4) or not((back_data[0] & 0x0F) == 0x0A):
-        print("fail1")
-        error = True
-
-    if not error:
-        buf_w = []
-        for i in range(16):
-            buf_w.append(data[i])
-
-        crc = rdr.calculate_crc(buf_w)
-        buf_w.append(crc[0])
-        buf_w.append(crc[1])
-        (error, back_data, back_length) = rdr.card_write(rdr.mode_transrec, buf_w)
-        if not(back_length == 4) or not((back_data[0] & 0x0F) == 0x0A):
-            error = True
-            print("fail2")
-
-    return error
-
-
-def write_ndef(block_address, records):
-    def zpad(list, count):
-        """padds with zeros to the end"""
-        return (list + bytes(count))[:count]
-
-    record_bytes = b''.join((ndef.message_encoder(records)))
-    length = len(record_bytes)
-    octets = bytes([0, 0, 3, length]) + record_bytes + b'\xFE'
-    while len(octets) > 0:
-        if (block_address) % 4 != 3:
-            block = zpad(octets, 16)
-            print("writing on block %i: %s" % (block_address, str(block)))
-            if wrapper.util.do_auth(block_address):
-                print("Error while auth.")
-            if write2(wrapper.rdr, block_address, block):
-                print("Error while writing.")
-            octets = octets[16:]
-        block_address += 1
 
 def parse_records(octets):
     records = list(ndef.message_decoder(octets))
@@ -266,15 +213,10 @@ def prepareOnce():
     
     run = True
     sp = None
-    device_id = None
+    device_id = os.environ["DEVICE_ID"]
     while sp == None:
         try:
             sp = spotify_client()
-        except BaseException:
-            traceback.print_exc(file=sys.stdout)
-    while device_id == None:
-        try:
-            device_id = os.environ["DEVICE_ID"]
         except BaseException:
             traceback.print_exc(file=sys.stdout)
             time.sleep(2)

@@ -165,18 +165,6 @@ def cleanup():
     silently(lambda _:wrapper._reset())
     sys.exit()
 
-""" def read_out(block_address):
-    #todo wtf?
-    if not wrapper.util.is_tag_set_auth():
-        return True
-
-    error = wrapper.util.do_auth(block_address)
-    if not error:
-        (error, data) = wrapper.rdr.read(block_address)
-        return bytes(data)
-    else:
-        raise Exception("Error on " + wrapper.util.sector_string(block_address))
- """
 # todo: read once
 
 #todo: rm, use request
@@ -208,17 +196,7 @@ def spotify_client():
     if not token:
         raise Exception("can't get token for " + username)
     return spotipy.Spotify(auth=token)
-
-
-def get_device_id(sp):
-    # todo repeat until found
-    devices = sp.devices()["devices"]
-    print(str(devices))
-    for device in devices:
-        if device["name"].startswith("raspotify"):
-            return device["id"]
-        else:
-            continue
+    
 
 def write2(rdr, block_address, data):
     """
@@ -296,7 +274,7 @@ def prepareOnce():
             traceback.print_exc(file=sys.stdout)
     while device_id == None:
         try:
-            device_id = get_device_id(sp)
+            device_id = os.environ["DEVICE_ID"]
         except BaseException:
             traceback.print_exc(file=sys.stdout)
             time.sleep(2)
